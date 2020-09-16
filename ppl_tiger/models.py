@@ -62,43 +62,56 @@ print(reward_model("tiger-left", "listen"))
 # Write a model for Pr (a1,r1, ..., aT,rT | s);  Condition on state because I don't
 # know how to write when conditioned on belief.
 # Then infer Pr(a1,...,aT | s, r1, ..., rT)
-def forward_model(s0, T=5,
-                  action_prior=[1.0, 1.0, 1.0]):
+def forward_model(s0, rewards=[], T=5, action_prior=[1.0, 1.0, 1.0]):
     history = []
     st = s0
+    for t in range(T):
+        index = pyro.sample("a_%d" % t, dist.Categorical(torch.tensor(action_prior)))
+        at = actions[index]
+        st_plus1 = transition_model(st, at)
+        # ot = observation_model(st, at, t=t)
+        rt = pyro.sample("r_%d" % t,
+                         dist.Normal(loc=reward_model(st, at), scale=1e-12))
+        history.append((st, at, rt))        
+        st = st_plus1
+    return history
+
+def policy_guide(s0, rewards=[], T=5, action_prior=[1.0, 1.0, 1.0]):
     for t in range(T):
         a_params = []
         for i in range(len(actions)):
             p = pyro.param("pr_a%d=%d" % (t, i), torch.tensor(action_prior[i]))
             a_params.append(p)
-        index = pyro.sample("a_%d" % t, dist.Categorical(torch.tensor(a_params)))
+        index = pyro.sample("a_%d" % t, dist.Categorical(torch.tensor(a_params)))        
         at = actions[index]
-        st_plus1 = transition_model(st, at)
-        ot = observation_model(st, at, t=t)
-        rt = pyro.sample("r_%d" % t, dist.Normal(loc=reward_model(st, at), scale=1e-12))
-
-        history.append((st, at, ot, rt))        
-        st = st_plus1
-    return history
-
-rewards = [-1,-1,-1,-1,10]
+        # st_plus1 = transition_model(st, at)
+        # ot = observation_model(st, at, t=t)
+        # rt = pyro.sample("r_%d" % t, dist.Normal(loc=reward_model(st, at), scale=1e-12))
+        # st = st_plus1
+        
+    
+T = 1
+rewards = [-1]#,-1,-1,-1,10]
 observation = {}
 for t in range(len(rewards)):
     observation["r_%d" % t] = rewards[t]
 conditioned_forward_model = pyro.condition(forward_model, data=observation)
+print(conditioned_forward_model("tiger-left"))
 
 # I don't understand yet how this works and why inference involves a loss function.
 pyro.clear_param_store()
 svi = pyro.infer.SVI(model=conditioned_forward_model,
-                     guide=forward_model,
-                     optim=pyro.optim.SGD({"lr": 0.001, "momentum":0.1}),
+                     guide=policy_guide,
+                     optim=pyro.optim.SGD({"lr": 0.01, "momentum":0.1}),
                      loss=pyro.infer.Trace_ELBO())
 
 losses = [] #, pr_left, pr_right, pr_listen  = [], [], [], []
 num_steps = 2500
 for t in range(num_steps):
-    losses.append(svi.step("tiger-left"))
+    losses.append(svi.step("tiger-left", rewards=rewards, T=T))
     sys.stdout.write("%d/%d\r" % (t+1, num_steps))
+    if t % 100 == 0:
+        print("Loss [%d] = %.3f" % (t, losses[-1]))
 sys.stdout.write("\n")
 
 plt.plot(losses)
