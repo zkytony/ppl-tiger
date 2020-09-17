@@ -29,21 +29,19 @@ def reward_model(state, action):
     return reward
 
 def model(s0):
-    prob_open_left = tensor(1.0/3.0)
-    prob_open_right = tensor(1.0/3.0)
-    prob_listen = tensor(1.0/3.0)
-    a = pyro.sample("a", dist.Categorical(
-        tensor([prob_open_left, prob_open_right, prob_listen])))
+    alpha = torch.tensor(5.0)
+    beta = torch.tensor(10.0)
+    a_probs = pyro.sample("a_probs", dist.Beta(alpha, beta).expand([3]).independent(1))
+    a_probs = a_probs / torch.sum(a_probs)  # normalize
+
+    a = pyro.sample("a", dist.Categorical(a_probs))
     r = pyro.deterministic("r", tensor(reward_model(s0, actions[a])))
     return a, r
 
 def guide(s0):
-    prob_open_left = pyro.param("prob_open_left", tensor(1.0/3.0))
-    prob_open_right = pyro.param("prob_open_right", tensor(1.0/3.0))
-    prob_listen = pyro.param("prob_listen", tensor(1.0/3.0))
-    pyro.sample("a", dist.Categorical(
-        tensor([prob_open_left, prob_open_right, prob_listen])))
-
+    alpha = pyro.param('alphas', torch.tensor(6.).expand([3]), constraint=dist.constraints.positive)
+    beta = pyro.param('betas', torch.tensor(7.).expand([3]), constraint=dist.constraints.positive)
+    a_probs = pyro.sample("a_probs", dist.Beta(alpha, beta).independent(1))
 
 observation = {"r": tensor(-1)}
 conditioned_forward_model = pyro.condition(model, data=observation)
@@ -57,21 +55,28 @@ svi = pyro.infer.SVI(model=conditioned_forward_model,
                      loss=pyro.infer.Trace_ELBO())
 
 losses = [] #, pr_left, pr_right, pr_listen  = [], [], [], []
-num_steps = 2500
+num_steps = 20000
 for t in range(num_steps):
-    losses.append(svi.step("tiger-left"))
+    loss = svi.step("tiger-left")
     sys.stdout.write("%d/%d\r" % (t+1, num_steps))
     if t % 100 == 0:
-        print("Loss [%d] = %.3f" % (t, losses[-1]))
+        print("Loss [%d] = %.3f" % (t, loss))
+        losses.append(loss)
 sys.stdout.write("\n")
 
 plt.plot(losses)
 plt.title("ELBO")  # Evidence lower bound
 plt.xlabel("step")
 plt.ylabel("loss");
-print("prob_open_left = %.3f" % pyro.param("prob_open_left").item())
-print("prob_open_right = %.3f" % pyro.param("prob_open_right").item())
-print("prob_listen = %.3f" % pyro.param("prob_listen").item())
+alphas = pyro.param("alphas")
+betas = pyro.param("betas")
+print("alphas =", alphas)
+print("betas =", betas)
+for i in range(10):
+    a_probs = pyro.sample("a_probs", dist.Beta(alphas, betas).independent(1))
+    a_probs = a_probs / torch.sum(a_probs)  # normalize
+    a = pyro.sample("a", dist.Categorical(a_probs))
+    print(i, a_probs, actions[a])
 plt.show()
 # The parameters a and b turn out to be very close to the analytical solution.
 
