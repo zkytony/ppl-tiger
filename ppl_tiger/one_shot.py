@@ -71,9 +71,9 @@ if __name__ == "__main__":
     pyro.clear_param_store()
     with pyro.condition(data={"next_state": tensor(states.index("you-win"))}):
         svi = pyro.infer.SVI(world_model, guide,
-                             pyro.optim.Adam({"lr": 0.001}),
+                             pyro.optim.Adam({"lr": 0.01}),
                              loss=pyro.infer.Trace_ELBO())
-        losses = train(svi, "tiger-left")
+        losses = train(svi, "tiger-right")
         for name in pyro.get_param_store():
             print("{}: {}".format(name, pyro.param(name)))
         weights = pyro.param("action_weights")
