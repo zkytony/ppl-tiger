@@ -70,21 +70,40 @@ def uniform_policy_model():
     return dist.Categorical(tensor([1.,1.,1.]))
 
 def expected_reward_model(state, policy_model, t=0,
-                          discount=1.0, discount_factor=0.95, thresh=1e-4):
+                          discount=1.0, discount_factor=0.95, thresh=1e-4,
+                          suffix=""):
     if discount < thresh:
-        return 0.0
-    action = actions[pyro.sample("a_%d" % t, policy_model())]
-    reward = pyro.sample("r_%d" % t, reward_model(state, action))
+        return dist.Delta(tensor(0.0))
+    action = actions[pyro.sample("a-%s_%d" % (suffix, t), policy_model())]
+    reward = pyro.sample("r-%s_%d" % (suffix, t), reward_model(state, action))
     next_state = states[pyro.sample("s_%d" % (t+1),
                                     transition_model(state, action))]
-    observation = observations[pyro.sample("o_%d" % t,
+    observation = observations[pyro.sample("o-%s_%d" % (suffix, t),
                                            observation_model(next_state, action))]
-    return reward + discount*expected_reward_model(next_state,
-                                                   policy_model,
-                                                   t=t+1,
-                                                   discount=discount*discount_factor,
-                                                   discount_factor=discount_factor,
-                                                   thresh=thresh)
+
+    future_reward_dist = expected_reward_model(next_state,
+                                               policy_model,
+                                               t=t+1,
+                                               discount=discount*discount_factor,
+                                               discount_factor=discount_factor,
+                                               thresh=thresh)
+    cum_reward = reward + discount*pyro.sample("r-future-%s_%d" % (suffix, t),
+                                               future_reward_dist)
+    return dist.Delta(cum_reward)
+
+def expected_belief_reward_model(belief, policy_model, t=0,
+                                 discount_factor=0.95, thresh=1e-4):
+    reward = 0.0
+    for i, state in enumerate(states):
+        reward_state = expected_reward_model(state,
+                                             policy_model,
+                                             discount=1.0,
+                                             discount_factor=discount_factor,
+                                             thresh=thresh,
+                                             suffix=state)
+        reward += belief.log_prob(i) * reward_state
+    return dist.Delta(tensor(reward))
+                                 
 
 print(expected_reward_model("tiger-left", uniform_policy_model))
 
