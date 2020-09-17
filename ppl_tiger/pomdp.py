@@ -76,11 +76,10 @@ def expected_reward_model(state, policy_model, t=0,
         return dist.Delta(tensor(0.0))
     action = actions[pyro.sample("a-%s_%d" % (suffix, t), policy_model())]
     reward = pyro.sample("r-%s_%d" % (suffix, t), reward_model(state, action))
-    next_state = states[pyro.sample("s_%d" % (t+1),
+    next_state = states[pyro.sample("s-%s_%d" % (suffix, t+1),
                                     transition_model(state, action))]
     observation = observations[pyro.sample("o-%s_%d" % (suffix, t),
                                            observation_model(next_state, action))]
-
     future_reward_dist = expected_reward_model(next_state,
                                                policy_model,
                                                t=t+1,
@@ -91,21 +90,47 @@ def expected_reward_model(state, policy_model, t=0,
                                                future_reward_dist)
     return dist.Delta(cum_reward)
 
+def belief_update(belief, observation, action):
+    belief_probs = torch.zeros(len(states))
+    for s_next, next_state in enumerate(states):
+        trans_prob = 0.0
+        for j, state in enumerate(states):
+            trans_prob += transition_model(state, action).log_prob(tensor(s_next))
+        obs_prob = observation_model(next_state, action).log_prob(tensor(observations.index(observation)))
+        belief_probs[s_next] = obs_prob * trans_prob
+    return dist.Categorical(belief_probs)
+
 def expected_belief_reward_model(belief, policy_model, t=0,
-                                 discount_factor=0.95, thresh=1e-4):
-    reward = 0.0
-    for i, state in enumerate(states):
-        reward_state = expected_reward_model(state,
-                                             policy_model,
-                                             discount=1.0,
-                                             discount_factor=discount_factor,
-                                             thresh=thresh,
-                                             suffix=state)
-        reward += belief.log_prob(i) * reward_state
-    return dist.Delta(tensor(reward))
-                                 
+                                 discount=1.0, discount_factor=0.95, thresh=1e-4,
+                                 num_samples=5):
+    if discount < thresh:
+        return dist.Delta(tensor(0.0))
+
+    cum_reward = 0.0
+    for i in range(num_samples):
+        state = states[pyro.sample("s-%d_%d" % (i, t), belief)]
+        action = actions[pyro.sample("a-%d_%d" % (i, t), policy_model())]
+        reward = pyro.sample("r-%d_%d" % (i, t), reward_model(state, action))
+        next_state = states[pyro.sample("s-next-%d_%d" % (i, t+1), transition_model(state, action))]
+        observation = observations[pyro.sample("o-%d_%d" % (i, t), observation_model(next_state, action))]
+        next_belief = belief_update(belief, observation, action)
+        future_reward_dist = expected_belief_reward_model(next_belief,
+                                                          policy_model,
+                                                          t=t+1,
+                                                          discount=discount*discount_factor,
+                                                          discount_factor=discount_factor,
+                                                          thresh=thresh,
+                                                          num_samples=num_samples)
+        cum_reward += belief.log_prob(tensor(states.index(state)))\
+            * (reward + discount*pyro.sample("r-future-%d_%d" % (i, t),
+                                             future_reward_dist))
+        print(i)
+    return dist.Delta(cum_reward)
 
 print(expected_reward_model("tiger-left", uniform_policy_model))
+prior_belief = dist.Categorical(tensor([1., 1.]))
+print(expected_belief_reward_model(prior_belief, uniform_policy_model))
+
 
 
 
