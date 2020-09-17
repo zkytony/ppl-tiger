@@ -27,22 +27,34 @@ def transition_model(state, action):
             return tensor(states.index("you-lose"))
 
 def world_model(state):
-    a = pyro.sample("a", dist.Categorical(tensor([1.,1.,1.])))
-    action = actions[a]
+    """
+    This describes p(s,a)
+    """
+    action = actions[pyro.sample("a", dist.Categorical(tensor([1.,1.,1.])))]
     loc = transition_model(state, action)
-    if loc.item() == 0:
-        next_state = pyro.sample("next_state", dist.Categorical(tensor([1.0, 0.0])))
-    else:
-        next_state = pyro.sample("next_state", dist.Categorical(tensor([0.0, 1.0])))
+    # Give the next state given by the transition model 100% probability
+    # and zero everywhere else.
+    next_state_weights = torch.zeros(len(states))
+    next_state_weights[loc] = 1.0
+    next_state = pyro.sample("next_state", dist.Categorical(next_state_weights))
     return next_state
     
 def guide(state):
+    """
+    The variational family for q(a)
+    """
+    # Previously I separated the three elements of these weights,
+    # and there was no constraint for them. The SVI algorithm was
+    # never able to infer the right parameters. But now with constraints,
+    # it works!
     weights = pyro.param("action_weights", tensor([0.1, 0.1, 0.1]),
                          constraint=dist.constraints.simplex)
     action_dist = dist.Categorical(weights)
     action = actions[pyro.sample("a", action_dist)]
 
+    
 def train(svi, init_state, num_steps=2500):
+    """Performs variational inference"""
     elbo = pyro.infer.Trace_ELBO()
     losses = []
     num_steps = 2500
