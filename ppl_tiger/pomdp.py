@@ -78,54 +78,79 @@ def Infer(svi, *args, num_steps=100, print_losses=True, **kwargs):
             print("Loss [%d] = %.3f" % (t, losses[-1]))
 
 
-def belief_update(belief, action, observation, num_steps=100, print_losses=False):
+def belief_update(belief, action, observation, num_steps=100, print_losses=False,
+                  suffix=""):
     def belief_update_model(belief, action, observation):
-        state = states[pyro.sample("bu_state", belief)]
-        next_state = states[pyro.sample("bu_next_state", transition_model(state, action))]
-        with pyro.condition(data={"bu_obs": observation}):
-            predicted_observation = pyro.sample("bu_obs", observation_model(next_state, action))
+        state = states[pyro.sample("bu_state-%s" % suffix, belief)]
+        next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_model(state, action))]
+        with pyro.condition(data={"bu_obs-%s" % suffix: observation}):
+            predicted_observation = pyro.sample("bu_obs-%s" % suffix, observation_model(next_state, action))
 
     def belief_guide(belief, action, observation):
-        belief_weights = pyro.param("bu_belief_weights", torch.ones(len(states)),
+        belief_weights = pyro.param("bu_belief_weights-%s" % suffix, torch.ones(len(states)),
                                     constraint=dist.constraints.simplex)
-        state = states[pyro.sample("bu_state", dist.Categorical(belief_weights))]
-        next_state = states[pyro.sample("bu_next_state", transition_model(state, action))]
+        state = states[pyro.sample("bu_state-%s" % suffix, dist.Categorical(belief_weights))]
+        next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_model(state, action))]
 
     svi = pyro.infer.SVI(belief_update_model,
                          belief_guide,
                          pyro.optim.Adam({"lr": 0.1}),  # hyper parameter matters
-                         loss=pyro.infer.Trace_ELBO(retain_graph=True))
+                         loss=pyro.infer.Trace_ELBO())
     if type(observation) == str:
         # !! Having to call observations.index is really annoying. I wish
         # Pyro can directly work with strings / or tensors support strings. !!
         # ... To work around this, either your models only work with integers
         # or you call index every time everywhere.
         observation = tensor(observations.index(observation))
+    if print_losses:
+        print("Inferring belief update...")
     Infer(svi, belief, action, observation, num_steps=num_steps,
           print_losses=print_losses)
-    return dist.Categorical(pyro.param("bu_belief_weights"))
+    return dist.Categorical(pyro.param("bu_belief_weights-%s" % suffix))
 
-
-def belief_value_model(t, belief, policy_model, discount=1.0, discount_factor=0.95, **kwargs):
-    if discount < 1e-4:
-        return dist.Normal(0, 0.01)
+def expected_reward(belief, action, t, discount=1.0, discount_factor=0.95,
+                    **kwargs):
+    """This should return a tensor where each element is
+    the expected reward when taking action at that index."""
+    if discount < 0.1:
+        return 0.0
     state = states[pyro.sample("state_%d" % t, belief)]
-    action = actions[pyro.sample("action_%d" % t, policy_model())]
-    next_state = states[pyro.sample("next_state_%d" % t, transition_model(state, action))]
-    observation = observations[pyro.sample("observation_%d" % t, observation_model(next_state, action))]
     reward = pyro.sample("reward_%d" % t, reward_model(state, action))
 
-    next_belief = belief_update(belief, action, observation, **kwargs)
+    next_state = states[pyro.sample("next_state_%d" % t, transition_model(state, action))]
+    observation = observations[pyro.sample("observation_%d" % t, observation_model(next_state, action))]
+    next_belief = belief_update(belief, action, observation, suffix=str(t), **kwargs)
+    next_action = pyro.sample("next_action_%d" % t, plan_action(t, next_belief))
     cum_reward = reward + discount*pyro.sample("next_reward_%d" % t,
-                                               belief_value_model(t+1, next_belief, policy_model,
-                                                                  discount=discount*discount_factor,
-                                                                  discount_factor=discount_factor,
-                                                                  **kwargs))
-    return dist.Normal(cum_reward, 0.01)
+                                               expected_reward(next_belief, next_action, t,
+                                                               discount=discount*discount_factor,
+                                                               discount_factor=discount_factor))
+    return cum_reward
 
-# def belief_value_guide(t, belief, policy_model, discount=1.0, discount_factor=0.95, **kwargs):
-    
-                                               
+def plan_action(t, belief, num_steps=20, print_losses=True):
+    """Infer action given belief"""
+    def policy_model(t, belief):
+        probs = tensor([1., 1., 1.])
+        for i, action in enumerate(actions):
+            value = expected_reward(belief, action, t,
+                                    num_steps=num_steps,
+                                    print_losses=print_losses)
+            probs[i] = value
+        return dist.Categorical(probs)
+
+    def policy_model_guide(t, belief):
+        action_weights = pyro.param("action_weights_%d" % t, tensor([0.1, 0.1, 0.1]),
+                                    constraint=dist.constraints.simplex)
+        action = pyro.sample("action_%d" % t, dist.Categorical(action_weights))
+
+    svi = pyro.infer.SVI(policy_model,
+                         policy_model_guide,
+                         pyro.optim.Adam({"lr":0.1}),
+                         loss=pyro.infer.Trace_ELBO())
+    if print_losses:
+        print("Inferring next action (%d)..." % t)
+    Infer(svi, t, belief, num_steps=num_steps, print_losses=print_losses)
+    return dist.Categorical(pyro.param("action_weights_%d" % t))
 
 
 ####### TESTS #######
@@ -137,10 +162,14 @@ def _test_belief_update():
     for name in pyro.get_param_store():
         print("{}: {}".format(name, pyro.param(name)))
 
-    res = belief_value_model(0, new_belief, uniform_policy_model, discount=1.0, discount_factor=0.95)
-    print(res)
+def _test_plan_action():
+    prior_belief = dist.Categorical(tensor([1., 1.]))
+    action_dist = plan_action(0, prior_belief, num_steps=20, print_losses=True)
+    for name in pyro.get_param_store():
+        print("{}: {}".format(name, pyro.param(name)))
 
 
 if __name__ == "__main__":
     _test_belief_update()
+    _test_plan_action()
 
