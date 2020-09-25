@@ -6,7 +6,7 @@ import torch
 states = ["tiger-left", "tiger-right", "terminal"]
 states_without_terminal = ["tiger-left", "tiger-right"]
 observations = ["growl-left", "growl-right"]
-actions = ["open-right", "listen", "open-left"]
+actions = ["open-left", "open-right", "listen"]
 
 
 def observation_dist(next_state, action, noise=0.15):

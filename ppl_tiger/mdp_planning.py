@@ -77,6 +77,7 @@ def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=
 
 def policy_model_guide(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     # You must reproduce the same structure in model...
+    # prior weights is uniform
     weights = pyro.param("action_weights", tensor([0.1, 0.1, 0.1]),
                          constraint=dist.constraints.simplex)
     for i, action in enumerate(actions):
