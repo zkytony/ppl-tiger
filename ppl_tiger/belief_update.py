@@ -112,6 +112,7 @@ def _test_belief_update():
     action = "listen"
     observation = "growl-right"
     new_belief = belief_update(prior_belief, action, observation, num_steps=100)
+    import pdb; pdb.set_trace()
     for name in pyro.get_param_store():
         print("{}: {}".format(name, pyro.param(name)))
 
