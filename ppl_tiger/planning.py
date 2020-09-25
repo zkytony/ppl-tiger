@@ -166,13 +166,13 @@ def Infer(svi, *args, num_steps=100, print_losses=True, **kwargs):
 def main():
     state = "tiger-right"
     max_depth = 3
-    discount_factor = 0.1
+    discount_factor = 0.95
     svi = pyro.infer.SVI(policy_model,
                          policy_model_guide,
-                         pyro.optim.Adam({"lr": 0.01}),
+                         pyro.optim.Adam({"lr": 0.05}),
                          loss=pyro.infer.Trace_ELBO())
     Infer(svi, state, 0, discount=1.0, discount_factor=discount_factor, max_depth=max_depth,
-          num_steps=900, print_losses=True)
+          num_steps=300, print_losses=True)
     weights = pyro.param("action_weights")
     print("Action to take: %s" % actions[torch.argmax(weights).item()])
     print("Action weights: %s" % str(pyro.param("action_weights")))
