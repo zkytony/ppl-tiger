@@ -153,17 +153,10 @@ def main():
                          pyro.optim.Adam({"lr": 0.01}),
                          loss=pyro.infer.Trace_ELBO())
     Infer(svi, state, 0, discount=1.0, discount_factor=discount_factor, max_depth=max_depth,
-          num_steps=100, print_losses=True)
+          num_steps=500, print_losses=True)
     weights = pyro.param("action_weights")
     print("Action to take: %s" % actions[torch.argmax(weights).item()])
     print("Action weights: %s" % str(pyro.param("action_weights")))
-    for action in actions:
-        value = value_model(state, action, 0,
-                            discount=1.0,
-                            discount_factor=discount_factor,
-                            max_depth=max_depth)
-        print(action, value)
-    # print(actions[policy_model(state, 0, discount=1.0, discount_factor=0.95, max_depth=5)])
 
 if __name__ == "__main__":
     main()
