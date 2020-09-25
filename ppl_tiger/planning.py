@@ -81,9 +81,25 @@ def reward_dist(state, action, next_state):
         reward -= 1.0
     return dist.Delta(tensor(reward))
 
+# My thought process:
+#
+# I am eventually obtaining a distribution Pr(a | s)
+# and I know that this distribution should be weighted
+# by Value(s,a).
+#
+# Then, what I do is I write a model for Value(s,a),
+# use that as the action weights, and sample the action
+# from this distribution as the policy_model.
+#
+# Then, if I set those action weights as the parameters,
+# SVI will figure out what those parameters should be
+# in order to be aligned with the Value(s,a) distribution
+# encoded by the T/O/R models of this domain.
+#
+# Hence the policy_model, policy_model_guide, and value_model.
 
 def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
-    """Returns Pr(a|b)"""
+    """Returns Pr(a|s)"""
     # Weight the actions based on the value, and return the most
     # likely action
     if t >= max_depth:
@@ -101,9 +117,6 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     max_weight = torch.max(action_weights)
     action_weights = tensor([remap(action_weights[i], min_weight, max_weight, 0., 1.)
                              for i in range(len(action_weights))])
-    # action_weights = -1*tensor(action_weights)
-    # max_weight = torch.max(action_weights)
-    # action_weights = max_weight - action_weights
     return actions[pyro.sample("a%d" % t, dist.Categorical(action_weights))]
 
 def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=10):
