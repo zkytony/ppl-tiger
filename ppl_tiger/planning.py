@@ -59,31 +59,31 @@ def reward_dist(state, action):
     Returns:
         A tensor (with a single integer) sampled from the reward function
     """
-    reward = 0
+    reward = 0.0
     if state != "terminal":
         if action == "open-left":
             if state == "tiger-right":
-                reward = 10
+                reward = 10.0
             else:
-                reward = -100
+                reward = -100.0
         elif action == "open-right":
             if state == "tiger-left":
-                reward = 10
+                reward = 10.0
             else:
-                reward = -100
+                reward = -100.0
 
         elif action == "listen":
-            reward = -1
+            reward = -1.0
     return dist.Delta(tensor(reward))
 
 
 # The model
 #   Pr (at | bt)
-GLOBAL_COUNT = 0
-def name(text):
-    global GLOBAL_COUNT
-    GLOBAL_COUNT += 1
-    return "%s-%d" % (text, GLOBAL_COUNT)
+# GLOBAL_COUNT = 0
+# def name(text):
+#     global GLOBAL_COUNT
+#     GLOBAL_COUNT += 1
+#     return "%s-%d" % (text, GLOBAL_COUNT)
 
 
 def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
@@ -91,13 +91,12 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     # Weight the actions based on the value, and return the most
     # likely action
     if t >= max_depth:
-        return pyro.sample(name("a%d" % t), dist.Categorical(tensor([1., 1., 1.])))
-    print("policy model")    
+        return pyro.sample("a%d" % t, dist.Categorical(tensor([1., 1., 1.])))
     action_weights = []
     
     # state = pyro.sample("s", belief)
     for i, action in enumerate(actions):
-        print("--- model %d, %s ---" % (t, action))
+        # print("--- model %d, %s ---" % (t, action))
         with scope(prefix=action):
             value = value_model(state, action, t,
                                 discount=discount,
@@ -108,21 +107,20 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     action_weights = torch.abs(tensor(action_weights))
     max_weight = torch.max(action_weights)
     action_weights -= max_weight
-    return pyro.sample(name("a%d" % t), dist.Categorical(action_weights))
+    return pyro.sample("a%d" % t, dist.Categorical(action_weights))
 
 def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=10):
     """Returns Pr(Value | b,a)"""
     if t >= max_depth:
         return tensor(0)
-    print("Value model %d" % t)
 
     # Somehow compute the value
-    next_state = states[pyro.sample(name("next_s%d" % t), transition_dist(state, action))]
-    observation = observations[pyro.sample(name("o%d" % t), observation_dist(next_state, action))]
-    reward = pyro.sample(name("r%d" % t), reward_dist(state, action))
+    next_state = states[pyro.sample("next_s%d" % t, transition_dist(state, action))]
+    observation = observations[pyro.sample("o%d" % t, observation_dist(next_state, action))]
+    reward = pyro.sample("r%d" % t, reward_dist(state, action))
     
     if next_state == "terminal":
-        return pyro.sample(name("v%d" % t), dist.Delta(reward))
+        return pyro.sample("v%d" % t, dist.Delta(reward))
     else:
         # compute future value
         discount = discount*discount_factor
@@ -133,16 +131,19 @@ def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=
         return reward + discount*value_model(next_state, next_action, t+1,
                                              discount=discount,
                                              discount_factor=discount_factor,
-                                             max_depth = max_depth)
+                                             max_depth=max_depth)
 
 def policy_model_guide(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     # print("---guide---%d" % t)
     weights = pyro.param("action_weights", tensor([0.1, 0.1, 0.1]),
                          constraint=dist.constraints.simplex)
-    action = actions[pyro.sample(name("a%d" % t), dist.Categorical(weights))]
-    # print("--- guide ---")
-    # value = value_model(state, action, t,
-    #                     discount=discount, discount_factor=discount_factor)
+    for i, action in enumerate(actions):
+        # action = actions[pyro.sample("a%d" % t, dist.Categorical(weights))]
+        with scope(prefix=action):
+            value = value_model(state, action, t,
+                                discount=discount, discount_factor=discount_factor,
+                                max_depth=max_depth)
+    action = pyro.sample("a%d" % t, dist.Categorical(weights))
 
 
 def Infer(svi, *args, num_steps=100, print_losses=True, **kwargs):
@@ -155,16 +156,12 @@ def Infer(svi, *args, num_steps=100, print_losses=True, **kwargs):
 
         
 def main():
-    # print(observations[pyro.sample("o", observation_model("tiger-left", "listen", noise=0.15))])
-    # print(states[pyro.sample("s1", transition_model("tiger-left", "open-left"))])
-    # print(states[pyro.sample("s2", transition_model("tiger-left", "listen"))])
-
     state = "tiger-left"
     svi = pyro.infer.SVI(policy_model,
                          policy_model_guide,
                          pyro.optim.Adam({"lr": 0.1}),
                          loss=pyro.infer.Trace_ELBO())
-    Infer(svi, state, 0, discount=1.0, discount_factor=0.95,
+    Infer(svi, state, 0, discount=1.0, discount_factor=0.95, max_depth=1,
           num_steps=100, print_losses=True)
     weights = pyro.param("action_weights")
     print("Action to take: %s" % actions[torch.argmax(weights).item()])
