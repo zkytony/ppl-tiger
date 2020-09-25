@@ -7,94 +7,29 @@ import pyro.distributions as dist
 import sys
 import matplotlib.pyplot as plt
 import numpy as np
+from domain import *
+from utils import Infer
 
-states = ["tiger-left", "tiger-right"]
-observations = ["growl-left", "growl-right"]
-actions = ["open-left", "open-right", "listen"]
-
-# All of the models have to return a tensor.
-
-def observation_model(next_state, action, noise=0.15):
-    """
-    Args:
-        next_state (str)  next state
-        action (str)  action
-    Returns:
-        The observation distribution to sample from
-    """
-    if action == "listen":
-        if next_state == "tiger-left":
-            obs_probs = [1.0-noise, noise]
-        else:
-            obs_probs = [noise, 1.0-noise]
-    else:
-        obs_probs = [0.5, 0.5]
-    return dist.Categorical(torch.tensor(obs_probs))
-
-def transition_model(state, action):
-    """
-    Args:
-        state (str)  state
-        action (str)  action
-    Returns:
-        The transition distribution to sample from
-    """    
-    trans_probs = torch.zeros(len(states))
-    trans_probs[states.index(state)] = 1.0
-    return dist.Categorical(trans_probs)
-
-def reward_model(state, action):
-    """
-    Args:
-        state (str)  state
-        action (str)  action
-    Returns:
-        A tensor (with a single integer) sampled from the reward function
-    """
-    reward = 0
-    if action == "open-left":
-        if state == "tiger-right":
-            reward = 10
-        else:
-            reward = -100
-    elif action == "open-right":
-        if state == "tiger-left":
-            reward = 10
-        else:
-            reward = -100
-    elif action == "listen":
-        reward = -1
-    return dist.Delta(tensor(reward))
-
-def uniform_policy_model():
-    return dist.Categorical(tensor([1.,1.,1.]))
-
-
-def Infer(svi, *args, num_steps=100, print_losses=True, **kwargs):
-    losses = []
-    for t in range(num_steps):
-        losses.append(svi.step(*args, **kwargs))
-        if print_losses:
-            print("Loss [%d] = %.3f" % (t, losses[-1]))
-
+# For this particular example we only care about tiger-left, tiger-right states.
+states = states_without_terminal
 
 def belief_update(belief, action, observation, num_steps=100, print_losses=False,
                   suffix=""):
     def belief_update_model(belief, action, observation):
         state = states[pyro.sample("bu_state-%s" % suffix, belief)]
-        next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_model(state, action))]
+        next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_dist(state, action))]
         with pyro.condition(data={"bu_obs-%s" % suffix: observation}):
-            predicted_observation = pyro.sample("bu_obs-%s" % suffix, observation_model(next_state, action))
+            predicted_observation = pyro.sample("bu_obs-%s" % suffix, observation_dist(next_state, action))
 
     def belief_guide(belief, action, observation):
         belief_weights = pyro.param("bu_belief_weights-%s" % suffix, torch.ones(len(states)),
                                     constraint=dist.constraints.simplex)
         state = states[pyro.sample("bu_state-%s" % suffix, dist.Categorical(belief_weights))]
-        next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_model(state, action))]
+        next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_dist(state, action))]
 
     svi = pyro.infer.SVI(belief_update_model,
                          belief_guide,
-                         pyro.optim.Adam({"lr": 0.1}),  # hyper parameter matters
+                         pyro.optim.Adam({"lr": 0.01}),  # hyper parameter matters
                          loss=pyro.infer.Trace_ELBO())
     if type(observation) == str:
         # !! Having to call observations.index is really annoying. I wish

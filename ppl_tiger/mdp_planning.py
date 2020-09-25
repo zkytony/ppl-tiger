@@ -7,79 +7,11 @@ import pyro
 import pyro.distributions as dist
 from pyro.contrib.autoname import scope
 from pyro import poutine
-import sys
-import matplotlib.pyplot as plt
 import numpy as np
 
-states = ["tiger-left", "tiger-right", "terminal"]
-observations = ["growl-left", "growl-right"]
-actions = ["open-right", "listen", "open-left"]
+from domain import *
+from utils import remap, Infer
 
-def remap(oldval, oldmin, oldmax, newmin, newmax):
-    return (((oldval - oldmin) * (newmax - newmin)) / (oldmax - oldmin)) + newmin
-
-def observation_dist(next_state, action, noise=0.15):
-    """
-    Args:
-        next_state (str)  next state
-        action (str)  action
-    Returns:
-        The observation distribution to sample from
-    """
-    if action == "listen":
-        if next_state == "tiger-left":
-            obs_probs = [1.0-noise, noise]
-        elif next_state == "tiger-right":
-            obs_probs = [noise, 1.0-noise]
-        else:  # terminal
-            obs_probs = [0.5, 0.5]
-    else:
-        obs_probs = [0.5, 0.5]
-    return dist.Categorical(torch.tensor(obs_probs))
-
-def transition_dist(state, action):
-    """
-    Args:
-        state (str)  state
-        action (str)  action
-    Returns:
-        The transition distribution to sample from
-    """
-    if action == "open-left" or action == "open-right":
-        next_state = "terminal"
-    else:
-        next_state = state
-    trans_probs = torch.zeros(len(states))
-    trans_probs[states.index(next_state)] = 1.0
-    return dist.Categorical(trans_probs)
-
-def reward_dist(state, action, next_state):
-    """
-    Args:
-        state (str)  state
-        action (str)  action
-    Returns:
-        A tensor (with a single integer) sampled from the reward function
-    """
-    reward = 1e-9
-    if next_state == "terminal":
-        if action == "open-left":
-            if state == "tiger-right":
-                reward = 10.0
-            elif state == "tiger-left":
-                reward = -10.0
-        elif action == "open-right":
-            if state == "tiger-left":
-                reward = 10.0
-            elif state == "tiger-right":
-                reward = -10.0
-        elif action == "listen":
-            reward = -1.0
-    else:
-        assert action == "listen", "state (%s) --%s--> next_state (%s) is Problematic."\
-            % (state, action, next_state)
-        reward -= 1.0
-    return dist.Delta(tensor(reward))
 
 # My thought process:
 #
@@ -153,15 +85,6 @@ def policy_model_guide(state, t, discount=1.0, discount_factor=0.95, max_depth=1
                                 discount=discount, discount_factor=discount_factor,
                                 max_depth=max_depth)
     action = pyro.sample("a%d" % t, dist.Categorical(weights))
-
-
-def Infer(svi, *args, num_steps=100, print_losses=True, **kwargs):
-    losses = []
-    for t in range(num_steps):
-        losses.append(svi.step(*args, **kwargs))
-        if print_losses:
-            print("Loss [%d] = %.3f" % (t, losses[-1]))
-
         
 def main():
     state = "tiger-right"
