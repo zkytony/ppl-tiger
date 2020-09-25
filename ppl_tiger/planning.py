@@ -15,6 +15,8 @@ states = ["tiger-left", "tiger-right", "terminal"]
 observations = ["growl-left", "growl-right"]
 actions = ["open-right", "listen", "open-left"]
 
+def remap(oldval, oldmin, oldmax, newmin, newmax):
+    return (((oldval - oldmin) * (newmax - newmin)) / (oldmax - oldmin)) + newmin
 
 def observation_dist(next_state, action, noise=0.15):
     """
@@ -65,12 +67,12 @@ def reward_dist(state, action, next_state):
             if state == "tiger-right":
                 reward = 10.0
             elif state == "tiger-left":
-                reward = -100.0
+                reward = -10.0
         elif action == "open-right":
             if state == "tiger-left":
                 reward = 10.0
             elif state == "tiger-right":
-                reward = -100.0
+                reward = -10.0
         elif action == "listen":
             reward = -1.0
     else:
@@ -86,18 +88,22 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     # likely action
     if t >= max_depth:
         return pyro.sample("a%d" % t, dist.Categorical(tensor([1., 1., 1.])))
-    action_weights = []
+    action_weights = torch.zeros(len(actions))
     for i, action in enumerate(actions):
         with scope(prefix="%s%d" % (action,t)):
             value = value_model(state, action, t,
                                 discount=discount,
                                 discount_factor=discount_factor,
                                 max_depth=max_depth)
-            action_weights.append(value)  # action prior is uniform
+            action_weights[i] = value  # action prior is uniform
     # Make the weights positive, then subtract from max
-    action_weights = -1*tensor(action_weights)
+    min_weight = torch.min(action_weights)
     max_weight = torch.max(action_weights)
-    action_weights = max_weight - action_weights
+    action_weights = tensor([remap(action_weights[i], min_weight, max_weight, 0., 1.)
+                             for i in range(len(action_weights))])
+    # action_weights = -1*tensor(action_weights)
+    # max_weight = torch.max(action_weights)
+    # action_weights = max_weight - action_weights
     return actions[pyro.sample("a%d" % t, dist.Categorical(action_weights))]
 
 def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=10):
@@ -145,15 +151,15 @@ def Infer(svi, *args, num_steps=100, print_losses=True, **kwargs):
 
         
 def main():
-    state = "tiger-left"
+    state = "tiger-right"
     max_depth = 3
-    discount_factor = 0.95
+    discount_factor = 0.1
     svi = pyro.infer.SVI(policy_model,
                          policy_model_guide,
                          pyro.optim.Adam({"lr": 0.01}),
                          loss=pyro.infer.Trace_ELBO())
     Infer(svi, state, 0, discount=1.0, discount_factor=discount_factor, max_depth=max_depth,
-          num_steps=500, print_losses=True)
+          num_steps=900, print_losses=True)
     weights = pyro.param("action_weights")
     print("Action to take: %s" % actions[torch.argmax(weights).item()])
     print("Action weights: %s" % str(pyro.param("action_weights")))
