@@ -40,6 +40,7 @@ def belief_policy_model_guide(belief, t, discount=1.0, discount_factor=0.95, max
 
 def plan(belief, max_depth=3, discount_factor=0.95, lr=0.1, nsteps=100, print_losses=True):
     """nsteps (int) number of iterations to reduce the loss"""
+    pyro.clear_param_store()
     svi = pyro.infer.SVI(belief_policy_model,
                          belief_policy_model_guide,
                          pyro.optim.Adam({"lr": lr}),

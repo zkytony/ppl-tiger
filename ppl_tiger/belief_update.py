@@ -26,6 +26,7 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
         state = states[pyro.sample("bu_state-%s" % suffix, dist.Categorical(belief_weights))]
         next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_dist(state, action))]
 
+    pyro.clear_param_store()        
     svi = pyro.infer.SVI(belief_update_model,
                          belief_guide,
                          pyro.optim.Adam({"lr": 0.01}),  # hyper parameter matters
