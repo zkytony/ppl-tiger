@@ -1,6 +1,9 @@
 from domain import *
 from mdp_planning import\
     policy_model, value_model
+from belief_update import\
+    belief_update
+
 import torch
 import torch.tensor as tensor
 import pyro
@@ -35,21 +38,57 @@ def belief_policy_model_guide(belief, t, discount=1.0, discount_factor=0.95, max
     action = pyro.sample("a%d" % t, dist.Categorical(weights))
 
 
-def main():
-    prior_belief = dist.Categorical(tensor([1., 1., 1e-9]))
-
-    max_depth = 3
-    discount_factor = 0.95    
+def plan(belief, max_depth=3, discount_factor=0.95, lr=0.1, nsteps=100, print_losses=True):
+    """nsteps (int) number of iterations to reduce the loss"""
     svi = pyro.infer.SVI(belief_policy_model,
                          belief_policy_model_guide,
-                         pyro.optim.Adam({"lr": 0.01}),
-                         loss=pyro.infer.Trace_ELBO())
-    Infer(svi, prior_belief, 0,
+                         pyro.optim.Adam({"lr": lr}),
+                         loss=pyro.infer.Trace_ELBO(retain_graph=True))
+    Infer(svi, belief, 0,
           discount=1.0, discount_factor=discount_factor, max_depth=max_depth,
-          num_steps=10, print_losses=True)    
-    weights = pyro.param("action_weights")
-    print("Action to take: %s" % actions[torch.argmax(weights).item()])
-    print("Action weights: %s" % str(pyro.param("action_weights")))    
+          num_steps=nsteps, print_losses=print_losses)
+    return pyro.param("action_weights")
+
+
+def simulate(state, sim_steps=10):
+    """sim_steps (int) number of steps to run the POMDP"""
+    # Simulate agent and planning and belief updates
+    max_depth = 3
+    discount_factor = 0.95        
+
+    # prior belief
+    belief = dist.Categorical(tensor([1., 1., 0.]))
+
+    for i in range(sim_steps):
+        print("\n--- Step %d ---" % i)
+        print("State: %s" % state)
+        print("Belief: %s" % belief.probs)
+        weights = plan(belief, max_depth=max_depth,
+                       discount_factor=discount_factor,
+                       nsteps=50, print_losses=False)
+        action = actions[torch.argmax(weights).item()]
+        print("Action to take: %s" % action)
+        print("Action weights: %s" % str(pyro.param("action_weights")))
+
+        # state transition, observation, reward, belief update
+        next_state = states[pyro.sample("s'", transition_dist(state, action))]
+        observation = observations[pyro.sample("o", observation_dist(next_state, action))]
+        reward = pyro.sample("r", reward_dist(state, action, next_state))
+        print("Next State: %s" % next_state)
+        print("Observation: %s" % observation)
+        print("Reward: %s" % reward.item())
+
+        print("Updating belief...")
+        belief = belief_update(belief, action, observation, num_steps=1000,
+                               print_losses=False)
+
+        if next_state == "terminal":
+            print("Done.")
+            break
+
+        # update state
+        state = next_state        
+    
 
 if __name__ == "__main__":
-    main()
+    simulate("tiger-left")

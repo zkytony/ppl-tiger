@@ -11,7 +11,6 @@ from domain import *
 from utils import Infer
 
 # For this particular example we only care about tiger-left, tiger-right states.
-states = states_without_terminal
 
 def belief_update(belief, action, observation, num_steps=100, print_losses=False,
                   suffix=""):
@@ -30,7 +29,7 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
     svi = pyro.infer.SVI(belief_update_model,
                          belief_guide,
                          pyro.optim.Adam({"lr": 0.01}),  # hyper parameter matters
-                         loss=pyro.infer.Trace_ELBO())
+                         loss=pyro.infer.Trace_ELBO(retain_graph=True))
     if type(observation) == str:
         # !! Having to call observations.index is really annoying. I wish
         # Pyro can directly work with strings / or tensors support strings. !!
@@ -45,11 +44,12 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
 
 
 ####### TESTS #######
+# states = states_without_terminal
 def _test_belief_update():
-    prior_belief = dist.Categorical(tensor([1., 1.]))
+    prior_belief = dist.Categorical(tensor([1., 1., 0.]))
     action = "listen"
     observation = "growl-right"
-    new_belief = belief_update(prior_belief, action, observation, num_steps=100)
+    new_belief = belief_update(prior_belief, action, observation, num_steps=1000)
     for name in pyro.get_param_store():
         print("{}: {}".format(name, pyro.param(name)))
         
