@@ -12,6 +12,10 @@ import numpy as np
 from domain import *
 from utils import remap, Infer
 
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+
 
 # My thought process:
 #
@@ -88,7 +92,7 @@ def policy_model_guide(state, t, discount=1.0, discount_factor=0.95, max_depth=1
     action = pyro.sample("a%d" % t, dist.Categorical(weights))
         
 def main():
-    state = "tiger-right"
+    state = "terminal"
     max_depth = 3
     discount_factor = 0.95
     svi = pyro.infer.SVI(policy_model,
@@ -101,5 +105,14 @@ def main():
     print("Action to take: %s" % actions[torch.argmax(weights).item()])
     print("Action weights: %s" % str(pyro.param("action_weights")))
 
+    action_weights = pyro.param("action_weights")
+    df = pd.DataFrame({"actions": actions,
+                       "action_weights": action_weights.detach().numpy()})
+    sns.barplot(data=df,
+                x="actions",
+                y="action_weights")
+    plt.title("state = %s" % state)
+    plt.savefig("figs/mdp-tiger_%s.png" % state)
+    
 if __name__ == "__main__":
     main()

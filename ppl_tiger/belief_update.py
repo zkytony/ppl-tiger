@@ -13,7 +13,7 @@ from utils import Infer
 # For this particular example we only care about tiger-left, tiger-right states.
 
 def belief_update(belief, action, observation, num_steps=100, print_losses=False,
-                  suffix=""):
+                  suffix="", lr=0.01):
     def belief_update_model(belief, action, observation):
         state = states[pyro.sample("bu_state-%s" % suffix, belief)]
         next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_dist(state, action))]
@@ -21,15 +21,17 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
             predicted_observation = pyro.sample("bu_obs-%s" % suffix, observation_dist(next_state, action))
 
     def belief_guide(belief, action, observation):
-        belief_weights = pyro.param("bu_belief_weights-%s" % suffix, torch.ones(len(states)),
-                                    constraint=dist.constraints.simplex)
-        state = states[pyro.sample("bu_state-%s" % suffix, dist.Categorical(belief_weights))]
-        next_state = states[pyro.sample("bu_next_state-%s" % suffix, transition_dist(state, action))]
-
+        next_belief_weights = pyro.param("next_bu_belief_weights-%s" % suffix,
+                                         torch.ones(len(states)),
+                                         constraint=dist.constraints.simplex)
+        state = states[pyro.sample("bu_state-%s" % suffix, belief)]
+        next_state = states[pyro.sample("bu_next_state-%s" % suffix,
+                                        dist.Categorical(next_belief_weights))]
+        
     pyro.clear_param_store()        
     svi = pyro.infer.SVI(belief_update_model,
                          belief_guide,
-                         pyro.optim.Adam({"lr": 0.01}),  # hyper parameter matters
+                         pyro.optim.Adam({"lr": lr}),  # hyper parameter matters
                          loss=pyro.infer.Trace_ELBO(retain_graph=True))
     if type(observation) == str:
         # !! Having to call observations.index is really annoying. I wish
@@ -41,7 +43,7 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
         print("Inferring belief update...")
     Infer(svi, belief, action, observation, num_steps=num_steps,
           print_losses=print_losses)
-    return dist.Categorical(pyro.param("bu_belief_weights-%s" % suffix))
+    return dist.Categorical(pyro.param("next_bu_belief_weights-%s" % suffix))
 
 
 ####### TESTS #######
@@ -50,7 +52,7 @@ def _test_belief_update():
     prior_belief = dist.Categorical(tensor([1., 1., 0.]))
     action = "listen"
     observation = "growl-right"
-    new_belief = belief_update(prior_belief, action, observation, num_steps=1000)
+    new_belief = belief_update(prior_belief, action, observation, num_steps=100)
     for name in pyro.get_param_store():
         print("{}: {}".format(name, pyro.param(name)))
         
