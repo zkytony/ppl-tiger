@@ -43,7 +43,7 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
                                 discount=discount,
                                 discount_factor=discount_factor,
                                 max_depth=max_depth)
-            action_weights[i] = value  # action prior is uniform
+            action_weights[i] = torch.exp(value)  # action weight is softmax of value
     # Make the weights positive, then subtract from max
     min_weight = torch.min(action_weights)
     max_weight = torch.max(action_weights)

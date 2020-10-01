@@ -54,7 +54,7 @@ def plan(belief, max_depth=3, discount_factor=0.95, lr=0.1, nsteps=100, print_lo
 def simulate(state, sim_steps=10):
     """sim_steps (int) number of steps to run the POMDP"""
     # Simulate agent and planning and belief updates
-    max_depth = 3
+    max_depth = 2
     discount_factor = 0.95        
 
     # prior belief
@@ -66,14 +66,15 @@ def simulate(state, sim_steps=10):
         print("Belief: %s" % belief.probs)
         weights = plan(belief, max_depth=max_depth,
                        discount_factor=discount_factor,
-                       nsteps=50, print_losses=False)
+                       nsteps=100, print_losses=False)
         action = actions[torch.argmax(weights).item()]
         print("Action to take: %s" % action)
         print("Action weights: %s" % str(pyro.param("action_weights")))
 
         # state transition, observation, reward, belief update
         next_state = states[pyro.sample("s'", transition_dist(state, action))]
-        observation = observations[pyro.sample("o", observation_dist(next_state, action))]
+        # The environment gives an observation without noise
+        observation = observations[pyro.sample("o", observation_dist(next_state, action, noise=0.0))]
         reward = pyro.sample("r", reward_dist(state, action, next_state))
         print("Next State: %s" % next_state)
         print("Observation: %s" % observation)
@@ -92,4 +93,4 @@ def simulate(state, sim_steps=10):
     
 
 if __name__ == "__main__":
-    simulate("tiger-left")
+    simulate("tiger-right")
