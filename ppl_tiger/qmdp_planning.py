@@ -15,6 +15,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from utils import Infer
 
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+
 
 def belief_policy_model(belief, t, discount=1.0, discount_factor=0.95, max_depth=10):
     state = states[pyro.sample("s%d" % t, belief)]
@@ -24,7 +28,7 @@ def belief_policy_model(belief, t, discount=1.0, discount_factor=0.95, max_depth
 
 def belief_policy_model_guide(belief, t, discount=1.0, discount_factor=0.95, max_depth=10):
     # prior weights is uniform
-    weights = pyro.param("action_weights", tensor([0.1, 0.1, 0.1]),
+    weights = pyro.param("action_weights", torch.ones(len(actions)),
                          constraint=dist.constraints.simplex)
     state = states[pyro.sample("s%d" % t, belief)]
     # This is just to generate the other variables
@@ -54,7 +58,7 @@ def plan(belief, max_depth=3, discount_factor=0.95, lr=0.1, nsteps=100, print_lo
 def simulate(state, sim_steps=10):
     """sim_steps (int) number of steps to run the POMDP"""
     # Simulate agent and planning and belief updates
-    max_depth = 2
+    max_depth = 3
     discount_factor = 0.95        
 
     # prior belief
@@ -68,8 +72,9 @@ def simulate(state, sim_steps=10):
                        discount_factor=discount_factor,
                        nsteps=100, print_losses=False)
         action = actions[torch.argmax(weights).item()]
+        action_weights = pyro.param("action_weights").detach().numpy()
         print("Action to take: %s" % action)
-        print("Action weights: %s" % str(pyro.param("action_weights")))
+        print("Action weights: %s" % str(action_weights))
 
         # state transition, observation, reward, belief update
         next_state = states[pyro.sample("s'", transition_dist(state, action))]
@@ -79,6 +84,30 @@ def simulate(state, sim_steps=10):
         print("Next State: %s" % next_state)
         print("Observation: %s" % observation)
         print("Reward: %s" % reward.item())
+
+        # Plot action weights
+        state_weights = belief.probs.detach().numpy()  # i.e. belief
+        df_a = pd.DataFrame({"actions": actions,
+                             "action_weights": action_weights})
+        df_b = pd.DataFrame({"states": states,
+                             "state_weights": state_weights})
+        
+        sns.barplot(data=df_a,
+                    x="actions",
+                    y="action_weights")
+        plt.title("t = %d | state = %s" % (i, state))
+        plt.savefig("figs/qmdp-tiger_%d_%s_action.png" % (i, state))
+        plt.clf()
+
+        # Plot belief weights        
+        sns.barplot(data=df_b,
+                    x="states",
+                    y="state_weights",
+                    palette="rocket")
+        plt.title("t = %d | state = %s" % (i, state))
+        plt.savefig("figs/qmdp-tiger_%d_%s_belief.png" % (i, state))
+        plt.clf()        
+
 
         print("Updating belief...")
         belief = belief_update(belief, action, observation, num_steps=1000,

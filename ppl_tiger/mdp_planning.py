@@ -62,7 +62,6 @@ def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=
 
     # Somehow compute the value
     next_state = states[pyro.sample("next_s%d" % t, transition_dist(state, action))]
-    observation = observations[pyro.sample("o%d" % t, observation_dist(next_state, action))]
     reward = pyro.sample("r%d" % t, reward_dist(state, action, next_state))
     
     if next_state == "terminal":
@@ -82,7 +81,7 @@ def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=
 def policy_model_guide(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     # You must reproduce the same structure in model...
     # prior weights is uniform
-    weights = pyro.param("action_weights", tensor([0.1, 0.1, 0.1]),
+    weights = pyro.param("action_weights", torch.ones(len(actions)),
                          constraint=dist.constraints.simplex)
     for i, action in enumerate(actions):
         with scope(prefix="%s%d" % (action,t)):

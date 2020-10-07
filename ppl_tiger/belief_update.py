@@ -21,14 +21,14 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
             predicted_observation = pyro.sample("bu_obs-%s" % suffix, observation_dist(next_state, action))
 
     def belief_guide(belief, action, observation):
-        next_belief_weights = pyro.param("next_bu_belief_weights-%s" % suffix,
+        next_belief_weights = pyro.param("bu_belief_weights-%s" % suffix,
                                          torch.ones(len(states)),
                                          constraint=dist.constraints.simplex)
         state = states[pyro.sample("bu_state-%s" % suffix, belief)]
         next_state = states[pyro.sample("bu_next_state-%s" % suffix,
                                         dist.Categorical(next_belief_weights))]
         
-    pyro.clear_param_store()        
+    # pyro.clear_param_store()
     svi = pyro.infer.SVI(belief_update_model,
                          belief_guide,
                          pyro.optim.Adam({"lr": lr}),  # hyper parameter matters
@@ -43,16 +43,16 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
         print("Inferring belief update...")
     Infer(svi, belief, action, observation, num_steps=num_steps,
           print_losses=print_losses)
-    return dist.Categorical(pyro.param("next_bu_belief_weights-%s" % suffix))
+    return dist.Categorical(pyro.param("bu_belief_weights-%s" % suffix))
 
 
 ####### TESTS #######
 # states = states_without_terminal
 def _test_belief_update():
     prior_belief = dist.Categorical(tensor([1., 1., 0.]))
-    action = "listen"
-    observation = "growl-right"
-    new_belief = belief_update(prior_belief, action, observation, num_steps=100)
+    action = "stay"
+    observation = "growl-left"
+    new_belief = belief_update(prior_belief, action, observation, num_steps=1000)
     for name in pyro.get_param_store():
         print("{}: {}".format(name, pyro.param(name)))
         

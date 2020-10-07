@@ -6,7 +6,7 @@ import torch
 states = ["tiger-left", "tiger-right", "terminal"]
 states_without_terminal = ["tiger-left", "tiger-right"]
 observations = ["growl-left", "growl-right"]
-actions = ["open-left", "open-right", "listen"]
+actions = ["open-left", "open-right", "listen", "stay"]
 
 
 def observation_dist(next_state, action, noise=0.15):
@@ -67,7 +67,7 @@ def reward_dist(state, action, next_state):
         elif action == "listen":
             reward = -1.0
     else:
-        assert action == "listen", "state (%s) --%s--> next_state (%s) is Problematic."\
-            % (state, action, next_state)
+        # assert action == "listen", "state (%s) --%s--> next_state (%s) is Problematic."\
+        #     % (state, action, next_state)
         reward -= 1.0
     return dist.Delta(tensor(reward))
