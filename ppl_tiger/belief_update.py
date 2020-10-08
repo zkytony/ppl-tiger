@@ -50,7 +50,7 @@ def belief_update(belief, action, observation, num_steps=100, print_losses=False
 # states = states_without_terminal
 def _test_belief_update():
     prior_belief = dist.Categorical(tensor([1., 1., 0.]))
-    action = "stay"
+    action = "listen"
     observation = "growl-left"
     new_belief = belief_update(prior_belief, action, observation, num_steps=1000)
     for name in pyro.get_param_store():

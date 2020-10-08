@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 def belief_policy_model(belief, t, discount=1.0, discount_factor=0.95, max_depth=10,
                         bu_nsteps=10, bu_lr=0.1):
-    if t >= max_depth:
+    if t > max_depth:
         return pyro.sample("a%d" % t, dist.Categorical(tensor([1., 1., 1.])))
     action_weights = torch.zeros(len(actions))
     for i, action in enumerate(actions):
@@ -44,7 +44,7 @@ def belief_policy_model(belief, t, discount=1.0, discount_factor=0.95, max_depth
 def belief_value_model(belief, action, t, discount=1.0, discount_factor=0.95, max_depth=10,
                        bu_nsteps=10, bu_lr=0.1):
     """Returns Pr(Value | b,a)"""
-    if t >= max_depth:
+    if t > max_depth:
         return tensor(1e-9)
 
     # Somehow compute the value

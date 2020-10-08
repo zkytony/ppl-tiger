@@ -38,7 +38,7 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
     """Returns Pr(a|s)"""
     # Weight the actions based on the value, and return the most
     # likely action
-    if t >= max_depth:
+    if t > max_depth:
         return pyro.sample("a%d" % t, dist.Categorical(tensor([1., 1., 1.])))
     action_weights = torch.zeros(len(actions))
     for i, action in enumerate(actions):
@@ -49,6 +49,7 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
                                 max_depth=max_depth)
             action_weights[i] = torch.exp(value)  # action weight is softmax of value
     # Make the weights positive, then subtract from max
+    # print(action_weights)    
     min_weight = torch.min(action_weights)
     max_weight = torch.max(action_weights)
     action_weights = tensor([remap(action_weights[i], min_weight, max_weight, 0., 1.)
@@ -57,7 +58,7 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
 
 def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=10):
     """Returns Pr(Value | b,a)"""
-    if t >= max_depth:
+    if t > max_depth:
         return tensor(1e-9)
 
     # Somehow compute the value
@@ -91,8 +92,8 @@ def policy_model_guide(state, t, discount=1.0, discount_factor=0.95, max_depth=1
     action = pyro.sample("a%d" % t, dist.Categorical(weights))
         
 def main():
-    state = "terminal"
-    max_depth = 3
+    state = "tiger-left"
+    max_depth = 2
     discount_factor = 0.95
     svi = pyro.infer.SVI(policy_model,
                          policy_model_guide,

@@ -58,11 +58,14 @@ def plan(belief, max_depth=3, discount_factor=0.95, lr=0.1, nsteps=100, print_lo
 def simulate(state, sim_steps=10):
     """sim_steps (int) number of steps to run the POMDP"""
     # Simulate agent and planning and belief updates
-    max_depth = 3
+    max_depth = 2
     discount_factor = 0.95        
 
     # prior belief
-    belief = dist.Categorical(tensor([1., 1., 0.]))
+    if TERMINATES:
+        belief = dist.Categorical(tensor([1., 1., 0.]))
+    else:
+        belief = dist.Categorical(tensor([1., 1.]))
 
     for i in range(sim_steps):
         print("\n--- Step %d ---" % i)

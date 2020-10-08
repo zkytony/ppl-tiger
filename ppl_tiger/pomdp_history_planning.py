@@ -6,6 +6,7 @@ from belief_update import\
 from qmdp_planning import plan as qmdp_plan
 
 import torch
+torch.set_printoptions(sci_mode=False)
 import torch.tensor as tensor
 import pyro
 import pyro.distributions as dist
@@ -20,29 +21,37 @@ import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
 
+LISTEN_POINTS = 0
+STAY_POINTS = 0
+
 # History-based policy and value models
 def history_policy_model(state, history, t, discount=1.0, discount_factor=0.95, max_depth=10):
     """history is a string"""
     with scope(prefix=history):
-        if t >= max_depth:
+        if t > max_depth:
             return pyro.sample("a%d" % t, dist.Categorical(torch.ones(len(actions))))
         action_weights = torch.zeros(len(actions))
         for i, action in enumerate(actions):
             with scope(prefix="%s%d" % (action, t)):
+                # print(action, t)
                 value = history_value_model(state, action, history, t,
                                             discount=discount,
                                             discount_factor=discount_factor,
                                             max_depth=max_depth)
                 action_weights[i] = torch.exp(value)
+    if t == 1:
+        import pdb; pdb.set_trace()
     # Make the weights positive, then subtract from max
     min_weight = torch.min(action_weights)
     max_weight = torch.max(action_weights)
     action_weights = tensor([remap(action_weights[i], min_weight, max_weight, 0., 1.)
                              for i in range(len(action_weights))])
+    print("{}".format(action_weights, 'f'))
     return actions[pyro.sample("a%d" % t, dist.Categorical(action_weights))]
 
 def history_value_model(state, action, history, t, discount=1.0, discount_factor=0.95, max_depth=10):
-    if t >= max_depth:
+    global LISTEN_POINTS, STAY_POINTS
+    if t > max_depth:
         return tensor(1e-9)
 
     next_state = states[pyro.sample("next_s%d" % t, transition_dist(state, action))]
@@ -55,13 +64,24 @@ def history_value_model(state, action, history, t, discount=1.0, discount_factor
         # compute future value
         discount = discount*discount_factor
         next_history = history + "_%s:%s" % (action, observation)
+        
+        if len(next_history) > 0:
+            h1 = next_history.split("_")[1]
+            if (h1.endswith("left") and state.endswith("left"))\
+               or (h1.endswith("right") and state.endswith("right")):
+                if h1.startswith("listen"):
+                    LISTEN_POINTS += 1
+                elif h1.startswith("stay"):
+                    STAY_POINTS += 1
+        
         next_action = history_policy_model(next_state, next_history, t+1,
                                            discount=discount, discount_factor=discount_factor,
                                            max_depth=max_depth)
-        return reward + discount * history_value_model(next_state, next_action, next_history, t+1,
+        rew = reward + discount * history_value_model(next_state, next_action, next_history, t+1,
                                                        discount=discount,
                                                        discount_factor=discount_factor,
                                                        max_depth=max_depth)
+        return rew
 
 def history_policy_model_guide(state, history, t, discount=1.0,
                                discount_factor=0.95, max_depth=10):
@@ -126,7 +146,7 @@ def test_history_models():
     # Testing history model
     svi = pyro.infer.SVI(history_policy_model,
                          history_policy_model_guide,
-                         pyro.optim.Adam({"lr": 0.1}),
+                         pyro.optim.Adam({"lr": 0.001}),
                          loss=pyro.infer.Trace_ELBO())
     Infer(svi, state, history, 0,
           discount=1.0, discount_factor=discount_factor, max_depth=max_depth,
@@ -140,11 +160,11 @@ def test_history_models():
 def test_pomdp_planning():
     belief = dist.Categorical(tensor([1., 1., 0.]))
     state = "tiger-left"
-    max_depth = 3
+    max_depth = 2
     discount_factor = 0.95
 
     weights = plan(belief, max_depth=max_depth,
-                   discount_factor=discount_factor,
+                   discount_factor=discount_factor, lr=0.2,
                    nsteps=100, print_losses=True)
     action = actions[torch.argmax(weights).item()]
     action_weights = pyro.param("action_weights").detach().numpy()
@@ -152,10 +172,13 @@ def test_pomdp_planning():
     print("Action to take: %s" % action)
     print("Action weights: %s" % str(action_weights))
 
+    print("listen:", LISTEN_POINTS)
+    print("stay:", STAY_POINTS)
+
 
     weights = qmdp_plan(belief, max_depth=max_depth,
-                   discount_factor=discount_factor,
-                   nsteps=100, print_losses=True)
+                        discount_factor=discount_factor, lr=0.1,
+                        nsteps=200, print_losses=False)
     action = actions[torch.argmax(weights).item()]
     action_weights = pyro.param("action_weights").detach().numpy()
     print("\n=== QMDP ===")    
