@@ -1,0 +1,159 @@
+/// Tiger problem in WebPPL
+/// Copy and paste the following code to any input box in
+/// https://agentmodels.org/chapters/7-multi-agent.html
+/// And click run. There is no compilation error, but the
+/// program does not finish (is it because WebPPL is too
+/// slow when it comes to solving POMDPs?)
+
+// Pull arm0 or arm1
+var actions = ["OL", "OR", "Listen", "Stay"]
+var states = ["TL", "TR", "terminal"]
+var observations = ["GL", "GR"]
+
+// Use latent "armToPrize" mapping in state to
+// determine which prize agent gets
+var transition = function(state, action){
+    if (action == "OL" || action == "OR") {
+        return "terminal";
+    } else {
+        return state;
+    }
+};
+
+// the agent receives observation
+var observe = function(state, action) {
+    if (state != "terminal") {
+        if (action == "Listen") {
+            if (state == "TL") {
+                return categorical([.85, .15], observations)
+            } else {
+                return categorical([.15, .85], observations)
+            }
+        }
+    }
+    return categorical([.5, .5], observations)
+};
+
+// Utility function
+var utility = function(state, action) {
+    if (state != "terminal") {
+        if (action == "OL") {
+            if (state == "TL") {
+                return -100
+            } else {
+                return 10;
+            }
+        } else if (action == "OR") {
+            if (state == "TR") {
+                return -100;
+            } else {
+                return 10;
+            }
+        } else {
+            return -1;
+        }
+    }
+    return 0;
+};
+
+
+// Starting state specifies the latent state that agent tries to learn
+// (In order that *prize* is defined, we set it to 'start', which
+// has zero utilty for the agent).
+
+///
+
+// Defining the POMDP agent
+
+// Agent params include utility function and initial belief (*priorBelief*)
+
+var makeAgent = function(params) {
+  var utility = params.utility;
+
+  // Implements *Belief-update formula* in text
+  var updateBelief = function(belief, observation, action){
+    return Infer({ model() {
+      var state = sample(belief);
+      var predictedNextState = transition(state, action);
+      var predictedObservation = observe(predictedNextState);
+      condition(_.isEqual(predictedObservation, observation));
+      return predictedNextState;
+    }});
+  };
+
+  var act = dp.cache(
+    function(belief) {
+      return Infer({ model() {
+        var action = uniformDraw(actions);
+        var eu = expectedUtility(belief, action);
+        factor(1000 * eu);
+        return action;
+      }});
+    });
+
+  var expectedUtility = dp.cache(
+    function(belief, action) {
+      return expectation(
+        Infer({ model() {
+          var state = sample(belief);
+          var u = utility(state, action);
+          if (state == "terminal") {
+            return u;
+          } else {
+            var nextState = transition(state, action);
+            var nextObservation = observe(nextState);
+            var nextBelief = updateBelief(belief, nextObservation, action);
+            var nextAction = sample(act(nextBelief));
+            return u + expectedUtility(nextBelief, nextAction);
+          }
+        }}));
+    });
+
+  return { params, act, expectedUtility, updateBelief };
+};
+
+var simulate = function(startState, agent) {
+  var act = agent.act;
+  var updateBelief = agent.updateBelief;
+  var priorBelief = agent.params.priorBelief;
+
+  var sampleSequence = function(state, priorBelief, action) {
+    var observation = observe(state);
+    var belief = ((action === 'noAction') ? priorBelief :
+                  updateBelief(priorBelief, observation, action));
+    var action = sample(act(belief));
+    var output = [[state, action]];
+
+    if (state == "terminal"){
+      return output;
+    } else {
+      var nextState = transition(state, action);
+      return output.concat(sampleSequence(nextState, belief, action));
+    }
+  };
+  // Start with agent's prior and a special "null" action
+  return sampleSequence(startState, priorBelief, 'noAction');
+};
+
+
+
+//-----------
+// Construct the agent
+
+// Define true startState (including true *armToPrize*) and
+// alternate possibility for startState (see Figure 2)
+
+var numberTrials = 1;
+var startState = "TL";
+
+// Agent's prior
+var priorBelief = Categorical({
+    ps: [.5, .5, 0.],
+    vs: states
+});
+
+var params = { utility: utility,
+               priorBelief: priorBelief };
+var agent = makeAgent(params);
+var trajectory = simulate(startState, agent);
+print(trajectory)

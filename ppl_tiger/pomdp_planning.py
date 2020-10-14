@@ -3,6 +3,7 @@ from belief_update import\
 from domain import *
 
 import torch
+torch.set_printoptions(sci_mode=False)
 import torch.tensor as tensor
 import pyro
 import pyro.distributions as dist
@@ -38,7 +39,7 @@ def belief_policy_model(belief, t, discount=1.0, discount_factor=0.95, max_depth
     max_weight = torch.max(action_weights)
     action_weights = tensor([remap(action_weights[i], min_weight, max_weight, 0., 1.)
                              for i in range(len(action_weights))])
-    return actions[pyro.sample("a%d" % t, dist.Categorical(action_weights))]        
+    return actions[pyro.sample("a%d" % t, dist.Categorical(action_weights))]
 
 
 def belief_value_model(belief, action, t, discount=1.0, discount_factor=0.95, max_depth=10,
@@ -51,7 +52,7 @@ def belief_value_model(belief, action, t, discount=1.0, discount_factor=0.95, ma
     state = states[pyro.sample("s%d" % t, belief)]
     next_state = states[pyro.sample("next_s%d" % t, transition_dist(state, action))]
     reward = pyro.sample("r%d" % t, reward_dist(state, action, next_state))
-    
+
     if next_state == "terminal":
         return pyro.sample("v%d" % t, dist.Delta(reward))
     else:
@@ -59,13 +60,6 @@ def belief_value_model(belief, action, t, discount=1.0, discount_factor=0.95, ma
         discount = discount*discount_factor
         observation = observations[pyro.sample("o%d" % t,
                                                observation_dist(next_state, action))]
-        # print("&&&&&&")
-        # print(pyro.param("action_weights"))
-        # print("&&&&&&\n")
-        # Somehow the 'action_weights' param gets lost after belief update.
-        # so we create it again.
-        # action_weights = pyro.param("action_weights")
-        # import pdb; pdb.set_trace()
         with poutine.block(hide_fn=lambda site: site["name"].startswith("bu")):
             next_belief = belief_update(belief, action, observation,
                                         num_steps=bu_nsteps, lr=bu_lr, suffix=str(t))
@@ -114,7 +108,7 @@ def plan(belief, max_depth=3, discount_factor=0.95,
         print("------------")
         for name in pyro.get_param_store():
             print("{}: {}".format(name, pyro.param(name)))
-        print("------------")            
+        print("------------")
     return pyro.param("action_weights")
 
 
@@ -122,9 +116,9 @@ def main(state="tiger-left", sim_steps=10):
     # Simulate agent and planning and belief updates
     max_depth = 2
     discount_factor = 0.95
-    bu_nsteps = 10   # number of steps for belief update
-    bu_lr = 0.01   # learning rate when performing belief update
-    nsteps = 1000
+    bu_nsteps = 10   # number of steps for belief update (increasing this blows up planning time)
+    bu_lr = 0.5   # learning rate when performing belief update
+    nsteps = 100
     lr = 0.1
 
     # prior belief
@@ -159,15 +153,13 @@ def main(state="tiger-left", sim_steps=10):
         print("Observation: %s" % observation)
         print("Reward: %s" % reward.item())
 
-
-
         # Plot action weights
         state_weights = belief.probs.detach().numpy()  # i.e. belief
         df_a = pd.DataFrame({"actions": actions,
                              "action_weights": action_weights})
         df_b = pd.DataFrame({"states": states,
                              "state_weights": state_weights})
-        
+
         sns.barplot(data=df_a,
                     x="actions",
                     y="action_weights")
@@ -175,15 +167,15 @@ def main(state="tiger-left", sim_steps=10):
         plt.savefig("figs/pomdp-tiger_%d_%s_action.png" % (i, state))
         plt.clf()
 
-        # Plot belief weights        
+        # Plot belief weights
         sns.barplot(data=df_b,
                     x="states",
                     y="state_weights",
                     palette="rocket")
         plt.title("t = %d | state = %s" % (i, state))
         plt.savefig("figs/pomdp-tiger_%d_%s_belief.png" % (i, state))
-        plt.clf()        
-        
+        plt.clf()
+
         print("Updating belief...")
         belief = belief_update(belief, action, observation, num_steps=1000,
                                print_losses=False)
@@ -202,13 +194,7 @@ def main(state="tiger-left", sim_steps=10):
         d *= discount_factor
     print("Average time: %.4fs" % np.mean(plan_times))
     print("Discounted cumulative reward: %.4f" % disc_reward)
-        
-    # action = belief_policy_model(belief, 0,
-    #                              discount_factor=discount_factor,
-    #                              max_depth=max_depth,
-    #                              num_steps=10, lr=0.1)
-    # print(action)
-        
+
 
 if __name__ == "__main__":
     main()
