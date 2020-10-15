@@ -59,7 +59,7 @@ def simulate(state, sim_steps=10):
     """sim_steps (int) number of steps to run the POMDP"""
     # Simulate agent and planning and belief updates
     max_depth = 2
-    discount_factor = 0.95        
+    discount_factor = 0.95
 
     # prior belief
     if TERMINATES:
@@ -73,7 +73,7 @@ def simulate(state, sim_steps=10):
         print("Belief: %s" % belief.probs)
         weights = plan(belief, max_depth=max_depth,
                        discount_factor=discount_factor,
-                       nsteps=100, print_losses=False)
+                       nsteps=100, print_losses=True)
         action = actions[torch.argmax(weights).item()]
         action_weights = pyro.param("action_weights").detach().numpy()
         print("Action to take: %s" % action)
@@ -94,7 +94,7 @@ def simulate(state, sim_steps=10):
                              "action_weights": action_weights})
         df_b = pd.DataFrame({"states": states,
                              "state_weights": state_weights})
-        
+
         sns.barplot(data=df_a,
                     x="actions",
                     y="action_weights")
@@ -102,14 +102,14 @@ def simulate(state, sim_steps=10):
         plt.savefig("figs/qmdp-tiger_%d_%s_action.png" % (i, state))
         plt.clf()
 
-        # Plot belief weights        
+        # Plot belief weights
         sns.barplot(data=df_b,
                     x="states",
                     y="state_weights",
                     palette="rocket")
         plt.title("t = %d | state = %s" % (i, state))
         plt.savefig("figs/qmdp-tiger_%d_%s_belief.png" % (i, state))
-        plt.clf()        
+        plt.clf()
 
 
         print("Updating belief...")
@@ -121,8 +121,8 @@ def simulate(state, sim_steps=10):
             break
 
         # update state
-        state = next_state        
-    
+        state = next_state
+
 
 if __name__ == "__main__":
     simulate("tiger-right")

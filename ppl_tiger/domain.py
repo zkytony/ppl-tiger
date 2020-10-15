@@ -3,10 +3,10 @@ import torch.tensor as tensor
 import torch
 
 
-states = ["tiger-left", "tiger-right", "terminal"]
+states = ["tiger-left", "tiger-right"]#, "terminal"]
 states_without_terminal = ["tiger-left", "tiger-right"]
 observations = ["growl-left", "growl-right"]
-actions = ["open-left", "open-right", "listen", "stay"]
+actions = ["open-left", "open-right", "listen"]#, "stay"]
 
 # state. Otherwise, the game resets.
 TERMINATES = "terminal" in states
@@ -46,10 +46,10 @@ def transition_dist(state, action):
             next_state = "terminal"
     else:
         next_state = state
-        
+
     trans_probs = torch.zeros(len(states))
     trans_probs[states.index(next_state)] = 1.0
-    
+
     return dist.Categorical(trans_probs)
 
 def reward_dist(state, action, next_state):

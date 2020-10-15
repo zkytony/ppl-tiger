@@ -3,6 +3,7 @@
 
 import torch
 import torch.tensor as tensor
+torch.set_printoptions(sci_mode=False)
 import pyro
 import pyro.distributions as dist
 from pyro.contrib.autoname import scope
@@ -17,7 +18,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-# My thought process:
+# Thought process:
 #
 # I am eventually obtaining a distribution Pr(a | s)
 # and I know that this distribution should be weighted
@@ -33,8 +34,9 @@ import matplotlib.pyplot as plt
 # encoded by the T/O/R models of this domain.
 #
 # Hence the policy_model, policy_model_guide, and value_model.
+# Reference: https://agentmodels.org/chapters/3a-mdp.html
 
-def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
+def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10, alpha=0.1):
     """Returns Pr(a|s)"""
     # Weight the actions based on the value, and return the most
     # likely action
@@ -47,9 +49,8 @@ def policy_model(state, t, discount=1.0, discount_factor=0.95, max_depth=10):
                                 discount=discount,
                                 discount_factor=discount_factor,
                                 max_depth=max_depth)
-            action_weights[i] = torch.exp(value)  # action weight is softmax of value
+            action_weights[i] = torch.exp(alpha*value)  # action weight is softmax of value
     # Make the weights positive, then subtract from max
-    # print(action_weights)    
     min_weight = torch.min(action_weights)
     max_weight = torch.max(action_weights)
     action_weights = tensor([remap(action_weights[i], min_weight, max_weight, 0., 1.)
@@ -64,7 +65,7 @@ def value_model(state, action, t, discount=1.0, discount_factor=0.95, max_depth=
     # Somehow compute the value
     next_state = states[pyro.sample("next_s%d" % t, transition_dist(state, action))]
     reward = pyro.sample("r%d" % t, reward_dist(state, action, next_state))
-    
+
     if next_state == "terminal":
         return pyro.sample("v%d" % t, dist.Delta(reward))
     else:
@@ -90,7 +91,7 @@ def policy_model_guide(state, t, discount=1.0, discount_factor=0.95, max_depth=1
                                 discount=discount, discount_factor=discount_factor,
                                 max_depth=max_depth)
     action = pyro.sample("a%d" % t, dist.Categorical(weights))
-        
+
 def main():
     state = "tiger-left"
     max_depth = 2
@@ -113,6 +114,6 @@ def main():
                 y="action_weights")
     plt.title("state = %s" % state)
     plt.savefig("figs/mdp-tiger_%s.png" % state)
-    
+
 if __name__ == "__main__":
     main()
